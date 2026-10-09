@@ -1,5 +1,39 @@
 # ScrimLab
 
+## Local database tests
+
+With Docker running, install dependencies and start the local Supabase stack:
+
+```bash
+npm install
+npx supabase start
+npx supabase migration up --local
+npm run test:db
+```
+
+On Windows PowerShell with script execution disabled, use `npm.cmd` and
+`npx.cmd`. The test script explicitly uses `--local`; it does not use the
+linked project or application environment variables. No database reset is
+required. See the [Supabase test command reference](https://supabase.com/docs/reference/cli/supabase-test-db).
+
+The pgTAP suite in `supabase/tests/database/` derives its seven tables and
+permissions from `20261009222433_remote_schema.sql`. It checks both owners,
+anonymous access, ownership spoofing and transfers, and every application
+foreign-key link on insert and update. `champion_pools` deliberately denies
+owner updates because the migration has no UPDATE policy. Random fixture IDs,
+auth users, and temporary helpers are contained in a transaction and rolled back.
+
+The suite also checks that API roles cannot TRUNCATE public tables and that
+service_role retains its grants. `20261009230000_revoke_api_truncate.sql`
+revokes API TRUNCATE access and updates public table defaults for postgres.
+Tests inspect postgres defaults and create a rolled-back table as postgres to
+verify future grants. The migration does not select supabase_admin or change
+its defaults; future tables created by that role are outside this fix's scope.
+The existing local stack previously received a broader version of this migration.
+A clean rebuild of the revised migration has not been verified.
+The pulled baseline remains unchanged.
+The older file in `supabase/proposals/` is superseded by this migration.
+
 <a href="https://demo-nextjs-with-supabase.vercel.app/">
   <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
   <h1 align="center">Next.js and Supabase Starter Kit</h1>
