@@ -48,7 +48,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
   if (type === "scrim" || type === "vod_review") {
     scrimQuery = scrimQuery.eq("session_type", type);
   }
-  if (status === "planned" || status === "confirmed") {
+  if (["planned", "confirmed", "completed", "cancelled"].includes(status)) {
     scrimQuery = scrimQuery.eq("status", status);
   }
   if (search) scrimQuery = scrimQuery.ilike("opponent_name", `%${search}%`);
@@ -70,6 +70,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
       .from("scrims")
       .select("id", { count: "exact", head: true })
       .eq("session_type", "scrim")
+      .in("status", ["planned", "confirmed"])
       .gte("scheduled_for", now),
     supabase
       .from("scrims")
@@ -82,7 +83,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
       .order("created_at", { ascending: true }),
     supabase
       .from("matches")
-      .select("id, opponent_name, played_on, our_score, opponent_score, notes, draft_plan_id")
+      .select("id, opponent_name, played_on, our_score, opponent_score, notes, draft_plan_id, scrim_id")
       .order("played_on", { ascending: false })
       .limit(100),
     supabase
@@ -164,6 +165,8 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
     session_added: "Session added.",
     session_updated: "Session updated.",
     session_deleted: "Session deleted.",
+    scrim_completed: "Scrim completed. Your result is saved in match history.",
+    scrim_result_invalid: "Choose a match date and whole-number scores between 0 and 99.",
     player_added: "Player added to the roster.",
     player_updated: "Player details updated.",
     player_deleted: "Player removed from the roster.",
@@ -307,6 +310,8 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
                     <option value="">All statuses</option>
                     <option value="planned">Planned</option>
                     <option value="confirmed">Confirmed</option>
+                    <option value="completed">Completed</option>
+                    <option value="cancelled">Cancelled</option>
                   </select>
                   <select name="period" defaultValue={period} className="rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm">
                     <option value="upcoming">Upcoming</option>
@@ -325,7 +330,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
                 ) : (
                   <div className="divide-y divide-white/5">
                     {scrims.map((scrim) => (
-                      <div key={scrim.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
+                      <div id={`scrim-${scrim.id}`} key={scrim.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
                         <div className="w-20 shrink-0">
                           <p className="text-xs text-slate-400">{formatLondonDate(scrim.scheduled_for)}</p>
                           <p className="mt-1 text-sm font-semibold">{formatLondonTime(scrim.scheduled_for)}</p>
@@ -341,6 +346,14 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
                         <span className={`rounded-full px-2.5 py-1 text-xs ${scrim.status === "confirmed" ? "bg-emerald-400/10 text-emerald-300" : "bg-amber-400/10 text-amber-300"}`}>
                           {capitalize(scrim.status)}
                         </span>
+                        {savedMatches.some((match) => match.scrim_id === scrim.id) ? (
+                          <Link href={`#match-${savedMatches.find((match) => match.scrim_id === scrim.id)?.id}`} className="text-sm text-emerald-300">View result</Link>
+                        ) : scrim.session_type === "scrim" && scrim.status !== "cancelled" && (
+                          <details className="relative">
+                            <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-sm text-emerald-300 hover:bg-white/10 [&::-webkit-details-marker]:hidden">{scrim.status === "completed" ? "Record result" : "Complete scrim"}</summary>
+                            <MatchForm action={completeScrim} buttonText="Save result and complete" scrim={scrim} draftPlans={draftPlans ?? []} />
+                          </details>
+                        )}
                         <details className="relative">
                           <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-sm text-emerald-300 hover:bg-white/10 [&::-webkit-details-marker]:hidden">Edit</summary>
                           <ScrimForm action={updateScrim} buttonText="Save changes" scrim={scrim} />
@@ -561,13 +574,13 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
                   <p className="px-5 py-6 text-sm text-slate-400">No match results yet. Add your first result.</p>
                 ) : (
                   <div className="divide-y divide-white/5">
-                    {matches.slice(0, 5).map((match) => {
+                    {matches.map((match) => {
                       const won = match.our_score > match.opponent_score;
                       const tied = match.our_score === match.opponent_score;
                       const result = tied ? "D" : won ? "W" : "L";
                       const tone = tied ? "text-amber-300" : won ? "text-emerald-400" : "text-rose-400";
                       return (
-                        <div key={match.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
+                        <div id={`match-${match.id}`} key={match.id} className="flex flex-wrap items-center gap-3 px-5 py-4">
                           <span className={`grid h-8 w-8 place-items-center rounded-lg bg-white/5 text-sm font-bold ${tone}`}>{result}</span>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{match.opponent_name}</p>
@@ -575,6 +588,7 @@ async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
                             {match.draft_plan_id && plansById.get(match.draft_plan_id) ? <p className="mt-1 text-[10px] text-emerald-300">Draft: {plansById.get(match.draft_plan_id)?.plan_name}</p> : null}
                           </div>
                           <span className="text-sm font-semibold text-slate-300">{match.our_score} – {match.opponent_score}</span>
+                          {match.scrim_id && <Link href={`/?period=all#scrim-${match.scrim_id}`} className="text-xs text-emerald-300">Linked scrim</Link>}
                           <details className="relative">
                             <summary className="cursor-pointer list-none rounded-md px-2 py-1 text-xs text-emerald-300 hover:bg-white/10 [&::-webkit-details-marker]:hidden">Edit</summary>
                             <MatchForm action={updateMatch} buttonText="Save changes" match={match} draftPlans={draftPlans ?? []} />
@@ -766,13 +780,15 @@ function ScrimForm({
         <input name="scheduled_for" type="datetime-local" required defaultValue={scrim ? londonDateTimeInput(scrim.scheduled_for) : ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm" />
       </label>
       <label className="block text-sm text-slate-300">Session type
-        <select name="session_type" defaultValue={scrim?.session_type === "vod_review" ? "vod_review" : "scrim"} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm">
+        <select name="session_type" disabled={scrim?.status === "completed"} defaultValue={scrim?.session_type === "vod_review" ? "vod_review" : "scrim"} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm">
           <option value="scrim">Scrim block</option><option value="vod_review">VOD review</option>
         </select>
       </label>
       <label className="block text-sm text-slate-300">Status
-        <select name="status" defaultValue={scrim?.status === "confirmed" ? "confirmed" : "planned"} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm">
+        <select name="status" disabled={scrim?.status === "completed" || scrim?.status === "cancelled"} defaultValue={scrim?.status ?? "planned"} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm">
           <option value="planned">Planned</option><option value="confirmed">Confirmed</option>
+          {scrim?.status === "completed" && <option value="completed">Completed</option>}
+          {scrim?.status === "cancelled" && <option value="cancelled">Cancelled</option>}
         </select>
       </label>
       <label className="block text-sm text-slate-300">Notes (optional)
@@ -1077,9 +1093,11 @@ function MatchForm({
   buttonText,
   match,
   draftPlans,
+  scrim,
 }: {
   action: (formData: FormData) => Promise<void>;
   buttonText: string;
+  scrim?: { id: string; opponent_name: string; scheduled_for: string };
   match?: {
     id: string;
     opponent_name: string;
@@ -1094,12 +1112,13 @@ function MatchForm({
   return (
     <form action={action} className="absolute right-0 top-9 z-20 w-80 max-w-[90vw] space-y-3 rounded-xl border border-white/10 bg-slate-950 p-4 shadow-xl">
       {match && <input type="hidden" name="match_id" value={match.id} />}
-      <h3 className="font-semibold">{match ? "Edit result" : "Add match result"}</h3>
+      {scrim && <input type="hidden" name="scrim_id" value={scrim.id} />}
+      <h3 className="font-semibold">{scrim ? "Complete scrim" : match ? "Edit result" : "Add match result"}</h3>
       <label className="block text-sm text-slate-300">Opponent
-        <input name="opponent_name" required maxLength={100} defaultValue={match?.opponent_name ?? ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm" />
+        <input name="opponent_name" required readOnly={Boolean(scrim)} maxLength={100} defaultValue={scrim?.opponent_name ?? match?.opponent_name ?? ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm" />
       </label>
       <label className="block text-sm text-slate-300">Match date
-        <input name="played_on" type="date" required defaultValue={match?.played_on ?? ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm" />
+        <input name="played_on" type="date" required defaultValue={scrim ? londonDateTimeInput(scrim.scheduled_for).slice(0, 10) : match?.played_on ?? ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm" />
       </label>
       <label className="block text-sm text-slate-300">Draft plan (optional)
         <select name="draft_plan_id" defaultValue={match?.draft_plan_id ?? ""} className="mt-1 w-full rounded-lg border border-white/10 bg-slate-900 px-3 py-2 text-sm">
@@ -1155,13 +1174,16 @@ async function updateScrim(formData: FormData) {
   const notes = String(formData.get("notes") ?? "").trim();
   if (!id || !opponentName || !dateTime) redirect("/?notice=error");
   const supabase = await requireSignedInSupabase();
+  const { data: existing, error: loadError } = await supabase.from("scrims")
+    .select("status, session_type").eq("id", id).single();
+  if (loadError || !existing) redirect("/?notice=error#schedule");
   const { error } = await supabase.from("scrims").update({
     opponent_name: opponentName,
     scheduled_for: londonDateTimeToIso(dateTime),
-    session_type: sessionType,
-    status,
+    session_type: existing.status === "completed" ? existing.session_type : sessionType,
+    status: ["completed", "cancelled"].includes(existing.status) ? existing.status : status,
     notes: notes || null,
-  }).eq("id", id);
+  }).eq("id", id).eq("status", existing.status).select("id").single();
   if (error) {
     console.error("Could not update scrim:", error);
     redirect("/?notice=error");
@@ -1502,6 +1524,33 @@ async function deletePlayerStats(formData: FormData) {
   }
   revalidatePath("/");
   redirect("/?notice=player_stats_deleted#matches");
+}
+
+async function completeScrim(formData: FormData) {
+  "use server";
+  const id = String(formData.get("scrim_id") ?? "");
+  const playedOn = String(formData.get("played_on") ?? "");
+  const ourInput = String(formData.get("our_score") ?? "").trim();
+  const opponentInput = String(formData.get("opponent_score") ?? "").trim();
+  const ourScore = Number(ourInput);
+  const opponentScore = Number(opponentInput);
+  const notes = String(formData.get("notes") ?? "").trim();
+  if (!id || !ourInput || !opponentInput || notes.length > 1000 ||
+      !validMatch("Scrim", playedOn, ourScore, opponentScore)) {
+    redirect("/?notice=scrim_result_invalid&period=all#schedule");
+  }
+  const supabase = await requireSignedInSupabase();
+  const draftPlanId = await validateOwnedDraftPlan(supabase, String(formData.get("draft_plan_id") ?? ""));
+  const { data: resultId, error } = await supabase.rpc("complete_scrim", {
+    p_scrim_id: id, p_played_on: playedOn, p_our_score: ourScore,
+    p_opponent_score: opponentScore, p_notes: notes || null, p_draft_plan_id: draftPlanId,
+  });
+  if (error) {
+    console.error("Could not complete scrim:", error);
+    redirect("/?notice=error&period=all#schedule");
+  }
+  revalidatePath("/");
+  redirect(`/?notice=scrim_completed&period=all#match-${resultId}`);
 }
 
 async function addMatch(formData: FormData) {

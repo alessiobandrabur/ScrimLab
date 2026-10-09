@@ -34,6 +34,22 @@ A clean rebuild of the revised migration has not been verified.
 The pulled baseline remains unchanged.
 The older file in `supabase/proposals/` is superseded by this migration.
 
+## Completing a scrim
+
+In the schedule, open **Complete scrim**, enter the match date and scores,
+and optionally choose a draft plan and add result notes. **Save result and
+complete** saves the linked match and marks the session completed together.
+The result appears in match history; **View result** and **Linked scrim**
+connect the two entries. Use the Completed status filter or All dates to find
+older sessions. Match history displays up to the latest 100 saved matches.
+
+The additive `20261010010000_complete_scrim.sql` migration adds an optional
+scrim link to matches and an owner-protected, transactional completion function.
+Existing matches remain valid without a link. Repeated submissions keep the
+first result, and deleting a session preserves its match result. Review notes
+are unchanged by completion. Apply locally with `npx.cmd supabase migration up
+--local` and run `npm.cmd run test:db`; no reset is needed.
+
 <a href="https://demo-nextjs-with-supabase.vercel.app/">
   <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
   <h1 align="center">Next.js and Supabase Starter Kit</h1>
